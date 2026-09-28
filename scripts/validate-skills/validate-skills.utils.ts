@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+
 // Tolerates the cell padding Prettier adds when it aligns Markdown tables.
 const SKILL_ROW = /\|[ \t]*`([a-z-]+)`[ \t]*\|/g;
 
@@ -7,29 +10,9 @@ export function extractSkills(markdown: string): string[] {
     .filter(skill => skill !== undefined);
 }
 
-interface MissingSkill {
+export interface MissingSkill {
   skill: string;
   path: string;
-}
-
-export type SymlinkIssue =
-  | { kind: 'not-symlink'; skill: string }
-  | { kind: 'missing-symlink'; skill: string };
-
-export function findSymlinkIssues(
-  agentSkills: string[],
-  claudeSkills: string[],
-  isSymlink: (skill: string) => boolean,
-): SymlinkIssue[] {
-  const claudeSet = new Set(claudeSkills);
-  const issues: SymlinkIssue[] = [];
-  for (const skill of claudeSkills) {
-    if (!isSymlink(skill)) issues.push({ kind: 'not-symlink', skill });
-  }
-  for (const skill of agentSkills) {
-    if (!claudeSet.has(skill)) issues.push({ kind: 'missing-symlink', skill });
-  }
-  return issues;
 }
 
 export function findMissingSkills(
@@ -39,4 +22,115 @@ export function findMissingSkills(
   return skills
     .map(skill => ({ skill, path: `.claude/skills/${skill}/SKILL.md` }))
     .filter(({ path }) => !exists(path));
+}
+
+export type SymlinkIssue =
+  { kind: 'not-symlink' } | { kind: 'wrong-target'; target: string };
+
+// Both directories sit at the repo root, so the link target is resolved
+// relative to .claude/ — the directory the symlink itself lives in.
+const CLAUDE_DIR = '.claude';
+const SKILLS_DIR = '.agents/skills';
+
+export function findSymlinkIssue(
+  target: string | null,
+): SymlinkIssue | undefined {
+  if (target === null) {
+    return { kind: 'not-symlink' };
+  }
+
+  if (resolve(CLAUDE_DIR, target) !== resolve(SKILLS_DIR)) {
+    return { kind: 'wrong-target', target };
+  }
+
+  return undefined;
+}
+
+// ── skills-lock.json v2 ──────────────────────────────────────────────────────
+
+export interface LockedSkill {
+  source: string;
+  path?: string;
+  version?: string;
+  hash: string;
+}
+
+export interface SkillsLock {
+  version: number;
+  // Indexing a parsed lock can miss, so the value is optional.
+  skills: Record<string, LockedSkill | undefined>;
+  local: string[];
+}
+
+export interface SkillFile {
+  path: string;
+  content: string;
+}
+
+// A per-file hash cannot notice a file deleted upstream, so the lock covers the
+// whole directory: every path relative to it, sorted, with its contents. NUL
+// separates the fields because no path or file we vendor contains one.
+export function hashSkill(files: SkillFile[]): string {
+  const hash = createHash('sha256');
+
+  for (const { path, content } of [...files].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  )) {
+    hash.update(`${path}\0${content}\0`);
+  }
+
+  return hash.digest('hex');
+}
+
+export type LockIssue =
+  | { kind: 'unaccounted'; skill: string }
+  | { kind: 'hash-mismatch'; skill: string }
+  | { kind: 'orphan-entry'; skill: string };
+
+export const LOCK_ISSUE_TEXT: Record<
+  LockIssue['kind'],
+  { label: string; remedy: string }
+> = {
+  unaccounted: {
+    label: 'Unaccounted skill',
+    remedy: 'add it to `skills` or `local` in skills-lock.json',
+  },
+  'hash-mismatch': {
+    label: 'Locked skill modified',
+    remedy:
+      're-vendor it, or update its hash in skills-lock.json if the edit is deliberate',
+  },
+  'orphan-entry': {
+    label: 'Lock entry with no directory',
+    remedy: 'remove it from skills-lock.json',
+  },
+};
+
+// `hashes` is one entry per directory in .agents/skills, keyed by skill name.
+export function findLockIssues(
+  hashes: Record<string, string>,
+  lock: SkillsLock,
+): LockIssue[] {
+  const local = new Set(lock.local);
+  const issues: LockIssue[] = [];
+
+  for (const [skill, hash] of Object.entries(hashes)) {
+    const locked = lock.skills[skill];
+
+    if (locked) {
+      if (locked.hash !== hash) {
+        issues.push({ kind: 'hash-mismatch', skill });
+      }
+    } else if (!local.has(skill)) {
+      issues.push({ kind: 'unaccounted', skill });
+    }
+  }
+
+  for (const skill of [...Object.keys(lock.skills), ...lock.local]) {
+    if (!(skill in hashes)) {
+      issues.push({ kind: 'orphan-entry', skill });
+    }
+  }
+
+  return issues;
 }
