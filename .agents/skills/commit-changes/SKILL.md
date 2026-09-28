@@ -20,16 +20,39 @@ Run `git status --porcelain` and count lines beginning with a staged status code
 
 Completion criterion: staged set is non-empty.
 
-### 2. Extract issue number from branch
+### 2. Extract issue number from branch, and decide whether this commit closes it
 
 Run:
 ```bash
-git symbolic-ref --short HEAD
+pnpm -s tsx scripts/generate-pr-description/derive-issue-ref.ts "$(git symbolic-ref --short HEAD)"
 ```
 
-If the branch name matches `^(\d+)-`, capture the number as `ISSUE`. Otherwise `ISSUE` is unset.
+Non-empty output → capture as `ISSUE`. Empty → `ISSUE` unset, step done.
 
-Completion criterion: `ISSUE` noted (may be empty).
+With `ISSUE` set, read what the issue will be judged on:
+
+```bash
+gh issue view <ISSUE> --json body --jq .body
+```
+
+Judge each criterion against the branch's **cumulative** work — every commit since `main` plus what is staged now, because earlier commits on this branch may already have resolved part of the issue:
+
+```bash
+git diff --cached "$(git merge-base origin/main HEAD)"
+```
+
+A criterion is **settled** when that cumulative work satisfies it _and_ something in-repo shows it: a diff, a test, a command's output. Otherwise it is **outstanding**, on either of two counts:
+
+- **Work remaining** — this commit is a partial slice and the criterion is not satisfied yet. A later commit on the branch settles it.
+- **Manual QA** — satisfied or not, only eyes on something no diff contains can decide it: a running app, a rendered component, a merged `main`, a published package. No commit settles it.
+
+`CLOSES` is set only when every criterion is settled. Three edges:
+
+- An issue with no acceptance criteria section is judged the same way against its prose: `CLOSES` is set when the cumulative work addresses everything the issue asks for.
+- An issue `gh` cannot read leaves `CLOSES` unset. A commit never closes an issue this skill was unable to check.
+- An issue already closed leaves `CLOSES` unset — there is nothing left to close.
+
+Completion criterion: `ISSUE` noted (may be empty); with `ISSUE` set, every criterion is marked settled or outstanding, and `CLOSES` follows from that.
 
 ### 3. Read commitlint rules
 
@@ -39,14 +62,19 @@ Completion criterion: custom rules understood; if the file is absent, skip this 
 
 ### 4. Generate commit message
 
-Draft a Conventional Commits message from the staged diff (`git diff --cached`), satisfying the rules from step 3. No `Co-Authored-By` trailer.
+Draft a Conventional Commits message from the staged diff (`git diff --cached`), satisfying the rules from step 3.
 
 Keep it caveman-terse:
 - Subject: imperative mood ("add", "fix", not "added", "adds"), ≤50 chars when possible, hard cap 72, no trailing period.
 - Body: only if the subject isn't self-explanatory; wrap at 72 chars.
-- Never write "this commit does X", "I", "we", "now", "currently", any AI-attribution line, emoji, or the scope's own name restated in the subject.
+- Never write "this commit does X", "I", "we", "now", "currently", emoji, or the scope's own name restated in the subject.
 
-If `ISSUE` is set and the generated message has no `Closes #N` / `Fixes #N` / `Resolves #N` footer line, append `Closes #<ISSUE>` as the last footer line (separated from the rest by a blank line if no footer exists yet). Footer lines must not end with a period.
+If `ISSUE` is set, `CLOSES` from step 2 decides the footer. A closing keyword claims that merging this commit finishes the issue, so it rides the commit that settles the last criterion — not the slices before it.
+
+- **`CLOSES` set** — the message ends with a closing footer. Keep one the draft already carries (`Closes #N` / `Fixes #N` / `Resolves #N`); otherwise append `Closes #<ISSUE>` as the last footer line, separated from the rest by a blank line if no footer exists yet.
+- **`CLOSES` unset** — the message carries no closing keyword, so merging leaves the issue open for the commit, or the person, that settles what is left. Drop a closing footer the draft invented. Substituting `Refs #<ISSUE>` is not the fallback: `commitlint.config.js`'s `footer-no-bare-refs` rejects a footer `#N` that no closing keyword precedes, and the PR overview already carries a non-closing `Refs #<ISSUE>`, so the issue cross-references this work either way.
+
+Footer lines must not end with a period.
 
 ### 5. Validate with commitlint
 
@@ -73,4 +101,4 @@ EOF
 )"
 ```
 
-Report the commit hash and subject line from `git log -1 --oneline`.
+Report the commit hash and subject line from `git log -1 --oneline`. With `CLOSES` unset, name what is still outstanding and which count it falls on, and state that `#<ISSUE>` stays open.

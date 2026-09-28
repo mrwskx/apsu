@@ -18,8 +18,6 @@ Default to professional tightness. Drop filler words, pleasantries, hedging ("ce
 
 Match user's request to skill and invoke.
 
-This table lists the model-invoked skills only. User-invoked skills are not listed — they fire only when the user types their name: `/handoff`, `/implement`, `/improve-codebase-architecture`, `/to-spec`, `/to-tickets`, `/triage`, `/writing-great-skills`.
-
 ### Planning & Design
 
 | Skill                 | Trigger                                                                                        |
@@ -33,18 +31,21 @@ This table lists the model-invoked skills only. User-invoked skills are not list
 
 | Skill                       | Trigger                                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
+| `implement`                 | `/implement`, "implement issue N", "work issue N", "pick up issue N"                        |
 | `tdd`                       | "test-first", "red-green", "write the test first", "add integration tests"                  |
 | `prototype`                 | "prototype this", "spike it", "does this state model feel right", "try a few UI variations" |
 | `diagnosing-bugs`           | "diagnose this", "debug this", something broken / throwing / failing / slow                 |
 | `resolving-merge-conflicts` | "resolve the conflicts", "fix this merge", "finish the rebase"                              |
+| `ponytail`                  | "be lazy", "simplest solution", "yagni", "do less", complaints about over-engineering       |
 
 ### Review & Ship
 
-| Skill            | Trigger                                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------- |
-| `code-review`    | "review this branch", "review since main", "review my changes", `/code-review`                      |
-| `commit-changes` | "commit", "commit this", "commit my changes", "make a commit", "create a commit", `/commit-changes` |
-| `open-pr`        | "open a PR", "open a pull request", "create a PR", "push and open PR", `/open-pr`                   |
+| Skill             | Trigger                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `code-review`     | "review this branch", "review since main", "review my changes", `/code-review`                      |
+| `commit-changes`  | "commit", "commit this", "commit my changes", "make a commit", "create a commit", `/commit-changes` |
+| `open-pr`         | "open a PR", "open a pull request", "create a PR", "push and open PR", `/open-pr`                   |
+| `ponytail-review` | "review for over-engineering", "what can we delete", "is this over-engineered", `/ponytail-review`  |
 
 ### Research
 
