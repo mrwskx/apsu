@@ -1,1 +1,16 @@
-{}
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "if": "Skill(implement)",
+            "type": "command",
+            "command": "pnpm -s tsx scripts/gate-implement/index.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
