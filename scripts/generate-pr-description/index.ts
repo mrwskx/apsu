@@ -5,15 +5,20 @@ import {
   generateOverview,
   isBreaking,
   parseCC,
+  resolveIssueRef,
 } from './generate-pr-description.utils';
 import type { Commit } from './generate-pr-description.utils';
 
 const execAsync = promisify(exec);
 
-const [baseSha, headSha, repo] = process.argv.slice(2);
+const [baseSha, headSha, repo, issueOrBranch = ''] = process.argv.slice(2);
 if (!baseSha || !headSha || !repo) {
-  throw new Error('Usage: index.ts BASE_SHA HEAD_SHA OWNER/REPO');
+  throw new Error(
+    'Usage: index.ts BASE_SHA HEAD_SHA OWNER/REPO [ISSUE_NUMBER|BRANCH]',
+  );
 }
+
+const issueRef = resolveIssueRef(issueOrBranch);
 
 const repoUrl = `https://github.com/${repo}`;
 
@@ -49,4 +54,4 @@ const commits: Commit[] = await Promise.all(
   }),
 );
 
-process.stdout.write(generateOverview(commits));
+process.stdout.write(generateOverview(commits, issueRef));

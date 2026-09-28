@@ -6,10 +6,12 @@
   "engines": {
     "node": ">=22.16.0 <23 || >=24"
   },
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "prepare": "husky",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:ci": "vitest run --coverage",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@commitlint/config-conventional": "^21.0.2",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "@vitest/eslint-plugin": "^1.6.25",
     "commitlint": "^21.0.2",
     "eslint": "^10.8.0",

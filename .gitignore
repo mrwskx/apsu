@@ -19,6 +19,9 @@ node_modules/
 # TypeScript build output
 dist/
 
+# Test coverage
+coverage/
+
 # pnpm
 pnpm-debug.log
 
