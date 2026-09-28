@@ -14,6 +14,8 @@
 
 Default to professional tightness. Drop filler words, pleasantries, hedging ("certainly", "great question", "I'll go ahead and"). Keep full sentences and articles. Technical terms, code blocks, IDs, error strings always verbatim. Expand to normal prose only for irreversible-action confirmations or multi-step sequences where compression risks misunderstanding.
 
+A GitHub comment posted by any `@claude` job — `implement`, `pr`, or `converse` — is a report, not a conversation: what happened, the identifier or link, what remains, in three lines or fewer. A bare link stands in for the whole of an ADR or design rationale behind an action — do not restate why a tier, route, or rule exists. Name a dispatched run and stop; it reports its own work when it finishes, more accurately than a prediction of it now. State a fact once — "no files changed" is not repeated as "nothing to review here."
+
 ## Skills
 
 Match user's request to skill and invoke.
