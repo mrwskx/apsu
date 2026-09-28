@@ -57,7 +57,7 @@ Match user's request to skill and invoke.
 
 ### Agent Skills (Issue Tracking & Triage)
 
-**Issue tracker** — GitHub Issues (`github.com/mvshvssv/apsu`), via `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+**Issue tracker** — GitHub Issues (`github.com/mrwskx/apsu`), via `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 **Triage labels** — Default label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
