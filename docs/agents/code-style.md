@@ -57,6 +57,8 @@ One directory per script, named for script. `index.ts` = I/O composition root. P
 
 ```
 scripts/
+├── derive-issue-ref/
+│   └── index.ts                              # argv, stdout
 ├── generate-pr-description/
 │   ├── index.ts                              # argv, git, stdout
 │   ├── generate-pr-description.utils.ts      # pure functions

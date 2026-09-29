@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+
+export const SKILLS_DIR = '.agents/skills';
+export const CLAUDE_SKILLS_DIR = '.claude/skills';
 
 // Tolerates the cell padding Prettier adds when it aligns Markdown tables.
 const SKILL_ROW = /\|[ \t]*`([a-z-]+)`[ \t]*\|/g;
 
 export function extractSkills(markdown: string): string[] {
   return [...markdown.matchAll(SKILL_ROW)]
-    .map(match => match[1])
+    .map((match): string | undefined => match[1])
     .filter(skill => skill !== undefined);
 }
 
@@ -20,17 +23,12 @@ export function findMissingSkills(
   exists: (path: string) => boolean,
 ): MissingSkill[] {
   return skills
-    .map(skill => ({ skill, path: `.claude/skills/${skill}/SKILL.md` }))
+    .map(skill => ({ skill, path: `${CLAUDE_SKILLS_DIR}/${skill}/SKILL.md` }))
     .filter(({ path }) => !exists(path));
 }
 
 export type SymlinkIssue =
   { kind: 'not-symlink' } | { kind: 'wrong-target'; target: string };
-
-// Both directories sit at the repo root, so the link target is resolved
-// relative to .claude/ — the directory the symlink itself lives in.
-const CLAUDE_DIR = '.claude';
-const SKILLS_DIR = '.agents/skills';
 
 export function findSymlinkIssue(
   target: string | null,
@@ -39,7 +37,9 @@ export function findSymlinkIssue(
     return { kind: 'not-symlink' };
   }
 
-  if (resolve(CLAUDE_DIR, target) !== resolve(SKILLS_DIR)) {
+  // Both directories sit at the repo root, so the link target is resolved
+  // relative to .claude/ — the directory the symlink itself lives in.
+  if (resolve(dirname(CLAUDE_SKILLS_DIR), target) !== resolve(SKILLS_DIR)) {
     return { kind: 'wrong-target', target };
   }
 

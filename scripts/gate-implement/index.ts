@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 import {
   decide,
   decideOnUnreadableBlockers,
+  parseJob,
+  recordsRefusal,
   toIssueFacts,
 } from './gate-implement.utils';
 import type {
@@ -18,36 +20,39 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+const {
+  GITHUB_ACTIONS,
+  GITHUB_ENV,
+  GITHUB_REPOSITORY: repo,
+  GATE_ISSUE: issue,
+  GATE_JOB,
+} = process.env;
+const job = parseJob(GATE_JOB);
+
 // Hand the refusal to the job as well as to Claude. A failed step is silent on
 // the thread, and `scripts/report-run` quotes this verbatim rather than
 // inventing a second wording for a decision made here.
-//
-// Only the implement tier writes it. There, every refusal means the run is not
-// authorized. In `pr` and `converse` a denial is the routine answer — the skill
-// is issue-scoped, or the tier is read-only — and reporting that as
-// "Not starting a run" would contradict the run that is plainly happening.
 async function deny(reason: string): Promise<void> {
   console.error(reason);
   process.exitCode = 2;
 
-  const env = process.env['GITHUB_ENV'];
-  if (env && process.env['GATE_JOB'] === 'implement') {
-    await appendFile(env, `GATE_REASON<<__GATE__\n${reason}\n__GATE__\n`);
+  if (GITHUB_ENV && recordsRefusal(job)) {
+    await appendFile(
+      GITHUB_ENV,
+      `GATE_REASON<<__GATE__\n${reason}\n__GATE__\n`,
+    );
   }
 }
 
 async function main(): Promise<void> {
   // Local sessions are supervised — the gate exists for unattended runs only.
-  if (!process.env['GITHUB_ACTIONS']) {
+  if (!GITHUB_ACTIONS) {
     return;
   }
 
-  const repo = process.env['GITHUB_REPOSITORY'];
-  const issue = process.env['GATE_ISSUE'];
-
-  if (!repo || !issue) {
+  if (!repo || !issue || !job) {
     await deny(
-      'Gate cannot verify this run (GITHUB_REPOSITORY or GATE_ISSUE unset). Denying.',
+      'Gate cannot verify this run (GITHUB_REPOSITORY or GATE_ISSUE unset, or GATE_JOB unknown). Denying.',
     );
     return;
   }
@@ -89,7 +94,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const decision = decide(facts, process.env['GATE_JOB'] ?? '');
+  const decision = decide(facts, job);
   if (!decision.allow) {
     await deny(decision.reason);
   }

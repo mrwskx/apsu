@@ -8,7 +8,6 @@ import {
   groupBySection,
   generateOverview,
   deriveIssueRef,
-  resolveIssueRef,
 } from './generate-pr-description.utils';
 import type { Commit } from './generate-pr-description.utils';
 
@@ -258,6 +257,14 @@ describe('groupBySection', () => {
 // ── deriveIssueRef ───────────────────────────────────────────────────────────
 
 describe('deriveIssueRef', () => {
+  it('returns a bare issue number as is', () => {
+    expect(deriveIssueRef('92')).toBe('92');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(deriveIssueRef('')).toBe('');
+  });
+
   it('derives from a leading-number slug branch', () => {
     expect(deriveIssueRef('92-some-slug')).toBe('92');
   });
@@ -280,26 +287,6 @@ describe('deriveIssueRef', () => {
 
   it('does not mistake a mid-word number for an issue', () => {
     expect(deriveIssueRef('2fa-support')).toBe('');
-  });
-});
-
-// ── resolveIssueRef ──────────────────────────────────────────────────────────
-
-describe('resolveIssueRef', () => {
-  it('returns empty string for empty input', () => {
-    expect(resolveIssueRef('')).toBe('');
-  });
-
-  it('uses a numeric argument directly', () => {
-    expect(resolveIssueRef('92')).toBe('92');
-  });
-
-  it('derives from a branch argument', () => {
-    expect(resolveIssueRef('claude/issue-92-20260925-2241')).toBe('92');
-  });
-
-  it('returns empty string for a branch matching no convention', () => {
-    expect(resolveIssueRef('main')).toBe('');
   });
 });
 

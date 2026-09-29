@@ -23,7 +23,7 @@ export interface BlockingIssue {
 
 export interface IssueFacts {
   number: number;
-  state: string;
+  state: 'open' | 'closed';
   labels: string[];
   authorAssociation: string;
   isPullRequest: boolean;
@@ -34,7 +34,7 @@ export interface IssueFacts {
 /** The `gh api repos/{repo}/issues/{number}` fields the decision reads. */
 export interface IssuePayload {
   number: number;
-  state: string;
+  state: 'open' | 'closed';
   labels: { name: string }[];
   author_association: string;
   /** Present only when the number names a pull request — the endpoint serves both. */
@@ -70,6 +70,30 @@ function describeBlockers(numbers: number[]): string {
     : named.join(', ');
 }
 
+/**
+ * The workflow job asking — `implement` and `pr` can do the work, `converse` is
+ * the read-only tier and can only report what it found.
+ */
+const JOBS = ['implement', 'pr', 'converse'] as const;
+
+export type Job = (typeof JOBS)[number];
+
+/** `GATE_JOB` as a known job, or undefined when it is unset or unrecognised. */
+export function parseJob(value: string | undefined): Job | undefined {
+  return JOBS.find(job => job === value);
+}
+
+/**
+ * Whether a refusal is handed to the job as well as to Claude. Only the
+ * implement tier's refusals mean the run is not authorized. In `pr` and
+ * `converse` a denial is the routine answer — the skill is issue-scoped, or the
+ * tier is read-only — and reporting that as "Not starting a run" would
+ * contradict the run that is plainly happening.
+ */
+export function recordsRefusal(job: Job | undefined): boolean {
+  return job === 'implement';
+}
+
 export type Decision = { allow: true } | { allow: false; reason: string };
 
 /**
@@ -93,11 +117,7 @@ export function decideOnUnreadableBlockers(stderr: string): Decision {
   };
 }
 
-/**
- * `job` is the workflow job asking — `implement` and `pr` can do the work,
- * `converse` is the read-only tier and can only report what it found.
- */
-export function decide(facts: IssueFacts, job: string): Decision {
+export function decide(facts: IssueFacts, job: Job): Decision {
   if (facts.isPullRequest) {
     return {
       allow: false,

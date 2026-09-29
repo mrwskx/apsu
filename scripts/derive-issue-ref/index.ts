@@ -1,4 +1,4 @@
-import { deriveIssueRef } from './generate-pr-description.utils';
+import { deriveIssueRef } from '../generate-pr-description/generate-pr-description.utils';
 
 // Shell boundary for the `commit-changes` and `open-pr` skills: prints the
 // issue number alone, or nothing at all when no issue is behind the branch.

@@ -1,11 +1,11 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  deriveIssueRef,
   formatDescription,
   generateOverview,
   isBreaking,
   parseCC,
-  resolveIssueRef,
 } from './generate-pr-description.utils';
 import type { Commit } from './generate-pr-description.utils';
 
@@ -18,7 +18,7 @@ if (!baseSha || !headSha || !repo) {
   );
 }
 
-const issueRef = resolveIssueRef(issueOrBranch);
+const issueRef = deriveIssueRef(issueOrBranch);
 
 const repoUrl = `https://github.com/${repo}`;
 
