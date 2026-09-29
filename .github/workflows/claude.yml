@@ -200,8 +200,8 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLEASE_PRIVATE_KEY }}
+          app-id: ${{ secrets.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
 
       # Opened here, not by the agent: the action's injected system prompt tells
       # Claude it may only commit and push, which contradicted /implement telling
