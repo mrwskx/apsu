@@ -5,7 +5,13 @@ import prettier from 'eslint-config-prettier/flat';
 
 export default [
   {
-    ignores: ['node_modules/**', 'dist/**', '.eslint-stubs/**', '.husky/_/**'],
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'coverage/**',
+      '.eslint-stubs/**',
+      '.husky/_/**',
+    ],
   },
 
   // airbnb ships rule groups and plugin registration separately; the plugins

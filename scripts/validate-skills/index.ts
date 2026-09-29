@@ -1,10 +1,18 @@
-import { access, lstat, readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, lstat, readdir, readFile, readlink } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+
+import type { SkillsLock } from './validate-skills.utils';
 import {
   extractSkills,
+  findLockIssues,
   findMissingSkills,
-  findSymlinkIssues,
+  findSymlinkIssue,
+  hashSkill,
+  LOCK_ISSUE_TEXT,
 } from './validate-skills.utils';
+
+const SKILLS_DIR = '.agents/skills';
+const CLAUDE_SKILLS_DIR = '.claude/skills';
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -16,56 +24,91 @@ async function exists(path: string): Promise<boolean> {
 }
 
 const claudeMd = await readFile('CLAUDE.md', 'utf-8');
-const skills = extractSkills(claudeMd);
 
-// The utils take synchronous predicates so they stay pure and trivially
-// testable; resolve the filesystem answers up front and hand them a lookup.
+// The Skills tables are a routing table for model-invoked skills, not an
+// inventory: user-invoked and generic skills are deliberately unlisted, so only
+// what the tables name is checked.
+const documented = extractSkills(claudeMd);
+
+// findMissingSkills takes a synchronous predicate so it stays pure and trivially
+// testable; resolve the filesystem answers up front and hand it a lookup.
 const presentPaths = new Set(
   (
     await Promise.all(
-      skills.map(async skill => {
-        const path = `.claude/skills/${skill}/SKILL.md`;
+      documented.map(async skill => {
+        const path = `${CLAUDE_SKILLS_DIR}/${skill}/SKILL.md`;
         return (await exists(path)) ? path : undefined;
       }),
     )
   ).filter(path => path !== undefined),
 );
-const missing = findMissingSkills(skills, path => presentPaths.has(path));
+const missing = findMissingSkills(documented, path => presentPaths.has(path));
 
-const [agentSkills, claudeSkills] = await Promise.all([
-  readdir('.agents/skills'),
-  readdir('.claude/skills'),
-]);
+// A single directory symlink, not one per skill: .claude/skills -> ../.agents/skills.
+const stats = await lstat(CLAUDE_SKILLS_DIR);
+const symlinkIssue = findSymlinkIssue(
+  stats.isSymbolicLink() ? await readlink(CLAUDE_SKILLS_DIR) : null,
+);
 
-const symlinked = new Map(
+// One walk of .agents/skills, one hash per directory. Any further
+// reconciliation against skills-lock.json reads these rather than walking again.
+const skillDirs = await readdir(SKILLS_DIR);
+const hashes = Object.fromEntries(
   await Promise.all(
-    claudeSkills.map(async skill => {
-      const stats = await lstat(join('.claude', 'skills', skill));
-      return [skill, stats.isSymbolicLink()] as const;
+    skillDirs.map(async (skill): Promise<[string, string]> => {
+      const dir = join(SKILLS_DIR, skill);
+      const entries = await readdir(dir, {
+        recursive: true,
+        withFileTypes: true,
+      });
+
+      return [
+        skill,
+        hashSkill(
+          await Promise.all(
+            entries
+              .filter(entry => entry.isFile())
+              .map(async entry => {
+                const full = join(entry.parentPath, entry.name);
+                return {
+                  path: relative(dir, full),
+                  content: await readFile(full, 'utf-8'),
+                };
+              }),
+          ),
+        ),
+      ];
     }),
   ),
 );
-const symlinkIssues = findSymlinkIssues(
-  agentSkills,
-  claudeSkills,
-  skill => symlinked.get(skill) ?? false,
-);
+const lock = JSON.parse(
+  await readFile('skills-lock.json', 'utf-8'),
+) as SkillsLock;
+const lockIssues = findLockIssues(hashes, lock);
 
 for (const { skill, path } of missing) {
   console.error(`Missing: ${skill} → ${path}`);
 }
-for (const issue of symlinkIssues) {
-  if (issue.kind === 'not-symlink') {
-    console.error(`Not a symlink: .claude/skills/${issue.skill}`);
-  } else {
-    console.error(
-      `Missing symlink: .claude/skills/${issue.skill} → .agents/skills/${issue.skill}`,
-    );
-  }
+if (symlinkIssue?.kind === 'not-symlink') {
+  console.error(`Not a symlink: ${CLAUDE_SKILLS_DIR} → ${SKILLS_DIR}`);
+}
+if (symlinkIssue?.kind === 'wrong-target') {
+  console.error(
+    `Wrong symlink target: ${CLAUDE_SKILLS_DIR} → ${symlinkIssue.target}, expected ${SKILLS_DIR}`,
+  );
 }
 
-const total = missing.length + symlinkIssues.length;
+for (const { kind, skill } of lockIssues) {
+  const { label, remedy } = LOCK_ISSUE_TEXT[kind];
+  console.error(`${label}: ${skill} — ${remedy}`);
+}
+
+const total = missing.length + (symlinkIssue ? 1 : 0) + lockIssues.length;
 if (total > 0) {
   throw new Error(`${total.toFixed()} issue(s) found.`);
 }
-console.log(`All ${skills.length.toFixed()} skills present. Symlinks in sync.`);
+
+console.log(
+  `All ${documented.length.toFixed()} documented skills present. Symlink in sync. ` +
+    `${skillDirs.length.toFixed()} skill directories locked or declared local.`,
+);

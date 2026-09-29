@@ -7,6 +7,8 @@ import {
   formatEntry,
   groupBySection,
   generateOverview,
+  deriveIssueRef,
+  resolveIssueRef,
 } from './generate-pr-description.utils';
 import type { Commit } from './generate-pr-description.utils';
 
@@ -253,6 +255,54 @@ describe('groupBySection', () => {
   });
 });
 
+// ── deriveIssueRef ───────────────────────────────────────────────────────────
+
+describe('deriveIssueRef', () => {
+  it('derives from a leading-number slug branch', () => {
+    expect(deriveIssueRef('92-some-slug')).toBe('92');
+  });
+
+  it('derives from a claude/issue-N branch', () => {
+    expect(deriveIssueRef('claude/issue-92-20260925-2241')).toBe('92');
+  });
+
+  it('derives from a bare issue-N branch', () => {
+    expect(deriveIssueRef('issue-92')).toBe('92');
+  });
+
+  it('derives from a slash-scoped leading-number branch', () => {
+    expect(deriveIssueRef('feature/92-some-slug')).toBe('92');
+  });
+
+  it('returns empty string for a branch matching no convention', () => {
+    expect(deriveIssueRef('main')).toBe('');
+  });
+
+  it('does not mistake a mid-word number for an issue', () => {
+    expect(deriveIssueRef('2fa-support')).toBe('');
+  });
+});
+
+// ── resolveIssueRef ──────────────────────────────────────────────────────────
+
+describe('resolveIssueRef', () => {
+  it('returns empty string for empty input', () => {
+    expect(resolveIssueRef('')).toBe('');
+  });
+
+  it('uses a numeric argument directly', () => {
+    expect(resolveIssueRef('92')).toBe('92');
+  });
+
+  it('derives from a branch argument', () => {
+    expect(resolveIssueRef('claude/issue-92-20260925-2241')).toBe('92');
+  });
+
+  it('returns empty string for a branch matching no convention', () => {
+    expect(resolveIssueRef('main')).toBe('');
+  });
+});
+
 // ── generateOverview ─────────────────────────────────────────────────────────
 
 describe('generateOverview', () => {
@@ -305,5 +355,27 @@ describe('generateOverview', () => {
     ]);
     expect(result).toContain('### Features\n\n* ');
     expect(result).toContain('\n\n### Bug Fixes');
+  });
+
+  it('appends a Refs footnote for a single commit when given an issue number', () => {
+    expect(generateOverview([commit()], '92')).toBe(
+      'Add login. ([abc1234](https://github.com/org/repo/commit/abc1234))\n\nRefs #92',
+    );
+  });
+
+  it('appends a Refs footnote for multiple commits when given an issue number', () => {
+    const result = generateOverview(
+      [commit({ type: 'feat' }), commit({ type: 'fix', description: 'Fix.' })],
+      '92',
+    );
+    expect(result.endsWith('\n\nRefs #92')).toBe(true);
+  });
+
+  it('adds no footnote when no issue number is given', () => {
+    expect(generateOverview([commit()])).not.toContain('Refs #');
+  });
+
+  it('adds no footnote for an empty issue number', () => {
+    expect(generateOverview([commit()], '')).not.toContain('Refs #');
   });
 });

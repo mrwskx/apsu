@@ -1,0 +1,442 @@
+name: Claude
+
+# `@claude <anything>` on an issue, a pull request, or a review thread. One
+# trigger phrase, routed to a tier by where it is used and who is talking.
+#
+# The repository is public, so `guard` checks the commenter before any tier
+# runs: a drive-by mention otherwise costs a runner, a checkout and an install.
+#
+# Whether a comment meant "implement" is Claude's judgement, not this file's —
+# the regex below is only a fast path to the skill when the phrasing is obvious.
+# Everything else lands in `converse`, which can reach the same conclusion and
+# escalate.
+#
+# Authorization is *not* Claude's judgement, and is enforced here rather than by
+# the PreToolUse hook: `prompt: /implement N` inlines the skill as a slash
+# command without ever calling the Skill tool, so the hook cannot see this
+# route. It covers Claude self-invoking the skill; `guard` and `Verify
+# authorization` cover the workflow driving it.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  guard:
+    # A bot mention is never a request. The agent's own notes comment quotes
+    # `@claude`, which was enough to start a second run on the same issue.
+    #
+    # The author check below reads the *comment* author, which is who is
+    # talking; on a review thread that is not the issue author. The issue
+    # author's association is read in the route step, where it answers a
+    # different question — whether the body is trusted input.
+    if: >-
+      github.event.comment.user.type != 'Bot' &&
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    outputs:
+      route: ${{ steps.route.outputs.route }}
+      issue: ${{ steps.route.outputs.issue }}
+    steps:
+      - id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.comment.body }}
+          IS_PR: ${{ github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          IS_CLOSED: ${{ github.event.issue.state == 'closed' }}
+          HAS_LABEL: ${{ contains(github.event.issue.labels.*.name, 'ready-for-agent') }}
+          TRUSTED_AUTHOR: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) }}
+        run: |
+          echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
+
+          if [[ "$IS_PR" == "true" ]]; then
+            # claude-code-action checks the PR head out into the workspace
+            # root for any open PR — `isCrossRepository` picks the refspec, not
+            # whether. Fork code therefore lands in a job holding
+            # `contents: write`, `Bash` and the OAuth token.
+            #
+            # `false`, not `true`: a read that failed is an unanswered question,
+            # not a permission.
+            cross=$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
+                      --json isCrossRepository --jq .isCrossRepository) || cross=''
+
+            if [[ "$cross" == "false" ]]; then
+              # A PR mention is never an implement-skill run, but it still needs
+              # write tools to act on review feedback.
+              echo "route=pr" >> "$GITHUB_OUTPUT"
+            else
+              # Same route either way; the wording differs because a fork is
+              # permanent and a failed read is worth retrying.
+              if [[ "$cross" == "true" ]]; then
+                why="its head branch lives in a fork"
+              else
+                why="where its head branch lives could not be read"
+              fi
+              echo "route=converse" >> "$GITHUB_OUTPUT"
+              echo "notice=$why, so the write tier is not authorized for it: no commits, no pushes, and no \`Bash\` beyond \`gh\` and \`git\` reads." >> "$GITHUB_OUTPUT"
+            fi
+          # No \b — bash uses POSIX ERE, where it silently never matches and
+          # every comment would fall through to converse.
+          elif [[ ! "$BODY" =~ @claude[[:space:]]+(please[[:space:]]+)?(implement|build|fix|ship|start|do)([[:space:]]|$) ]]; then
+            # Not an implement request — a question, a nudge, anything else.
+            # Answered regardless of label.
+            echo "route=converse" >> "$GITHUB_OUTPUT"
+          elif [[ "$IS_CLOSED" == "true" ]]; then
+            echo "route=refuse" >> "$GITHUB_OUTPUT"
+            echo "reason=it is closed. If the work is genuinely outstanding, reopen it — a closed issue is not a request." >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_LABEL" == "true" && "$TRUSTED_AUTHOR" == "true" ]]; then
+            echo "route=implement" >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_LABEL" != "true" ]]; then
+            echo "route=refuse" >> "$GITHUB_OUTPUT"
+            echo "reason=it is not labelled \`ready-for-agent\`. Run \`/triage\`, or apply the label if it is already specified." >> "$GITHUB_OUTPUT"
+          else
+            echo "route=refuse" >> "$GITHUB_OUTPUT"
+            echo "reason=it was opened by an outside author, so its body is untrusted input to an agent with write access. Rewrite it as a maintainer-authored spec with \`/to-spec\` first." >> "$GITHUB_OUTPUT"
+          fi
+
+      # Refuse here rather than in an agent job. Routing an unauthorized
+      # implement request to `converse` was tried: with no write tools Claude
+      # attempted the work anyway, hit three permission denials and burned all
+      # 15 turns — 49 seconds and a red X to say what this step says in two.
+      - name: Refuse an unauthorized implement request
+        if: steps.route.outputs.route == 'refuse'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.route.outputs.issue }}
+          REASON: ${{ steps.route.outputs.reason }}
+        run: |
+          gh issue comment "$ISSUE" --repo "${{ github.repository }}" \
+            --body "Not starting an implementation run: $REASON"
+
+      # Otherwise the downgrade is invisible: `converse` just answers, and
+      # the maintainer never learns which tier refused the change.
+      - name: Note a route downgraded to the read-only tier
+        if: steps.route.outputs.notice != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.route.outputs.issue }}
+          NOTICE: ${{ steps.route.outputs.notice }}
+        run: |
+          gh issue comment "$ISSUE" --repo "${{ github.repository }}" \
+            --body "Answering this from the read-only tier: $NOTICE"
+
+  implement:
+    needs: guard
+    if: needs.guard.outputs.route == 'implement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: claude-implement-${{ needs.guard.outputs.issue }}
+      cancel-in-progress: false
+    env:
+      ISSUE: ${{ needs.guard.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # /open-pr needs history for `git rev-list origin/main..HEAD`.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The enforcement point. `guard` routes an unauthorized comment to
+      # `converse`, but the hook cannot see the slash-command route at all —
+      # `prompt: /implement N` never calls the Skill tool. Same logic, same tests.
+      - name: Verify authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_ISSUE: ${{ env.ISSUE }}
+          GATE_JOB: implement
+        run: pnpm tsx scripts/gate-implement/index.ts
+
+      - name: Configure git identity
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
+
+      - name: Implement the issue
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GATE_ISSUE: ${{ env.ISSUE }}
+          GATE_JOB: implement
+        with:
+          # Do NOT pass github_token: with the default GITHUB_TOKEN, GitHub will
+          # not fire workflows on the agent's commits and ci.yml never runs.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: '/implement ${{ env.ISSUE }}'
+          track_progress: true
+          # Bash is off by default, which is what made the first run of this
+          # flow finish green having committed nothing.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 120
+            --allowedTools Read,Write,Edit,Glob,Grep,Bash,Skill,TodoWrite
+
+      # Our own App token, not the action's: claude-code-action revokes the
+      # installation token it minted in its own last step, so
+      # `steps.claude.outputs.github_token` is already dead by the next step.
+      # Not GITHUB_TOKEN either — the agent branch only gets CI via the
+      # pull_request event, which a PR opened by GITHUB_TOKEN never fires.
+      - name: Mint an app token
+        id: app-token
+        if: ${{ !cancelled() }}
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      # Opened here, not by the agent: the action's injected system prompt tells
+      # Claude it may only commit and push, which contradicted /implement telling
+      # it to open a PR, and which instruction won was a coin flip.
+      # !cancelled(): a run cut short by the turn cap still pushed per-slice
+      # commits, and a PR is a better artifact than an orphan branch.
+      - name: Open a pull request
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [ -n "$BRANCH" ] || exit 0
+          # `branch_name` is a name, not evidence: the action sets it for a
+          # branch it never pushed, and `git fetch` then dies with exit 128
+          # before the three no-op guards below can speak. Checked with
+          # ls-remote rather than `fetch || exit 0`, which would also swallow a
+          # transient fetch failure and skip a PR that should have been opened.
+          git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || exit 0
+          git fetch origin "$BRANCH" main
+          [ "$(git rev-list --count "origin/main..origin/$BRANCH")" -gt 0 ] || exit 0
+          # Its own line, not inside the `||` list: there, `set -e` is off, so a
+          # failed API call reads as "no PR yet" and the step skips silently.
+          open=$(gh pr list --head "$BRANCH" --json number --jq 'length')
+          [ "$open" -eq 0 ] || exit 0
+
+          # Read up front: the App installation needs Issues: Read, and
+          # without it this fails with "Could not resolve to an issue or pull
+          # request with the number of N" — not a permission error. Inlined
+          # into `gh pr create` it would expand to an empty title there.
+          title=$(gh issue view "$ISSUE" --json title --jq .title)
+
+          # Temp file, not awk -v: an assignment cannot carry newlines.
+          overview=$(mktemp)
+          trap 'rm -f "$overview"' EXIT
+          pnpm -s tsx scripts/generate-pr-description/index.ts \
+            "$(git rev-parse origin/main)" "$(git rev-parse "origin/$BRANCH")" \
+            "$GITHUB_REPOSITORY" "$ISSUE" > "$overview"
+
+          # Same body shape as /open-pr: the template with ## Overview filled in,
+          # so pr-description.yml finds it populated and exits immediately.
+          body=$(awk -v ovfile="$overview" \
+            '/^<!-- Auto-populated/ { while ((getline l < ovfile) > 0) print l; next } { print }' \
+            .github/PULL_REQUEST_TEMPLATE.md)
+
+          if [ "$CONCLUSION" != "success" ]; then
+            body="$body
+
+          ## Note
+
+          This run ended with conclusion \`$CONCLUSION\`. The branch carries the
+          commits it managed before stopping and may be incomplete — $RUN_URL"
+          fi
+
+          gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
+
+      # Kept so a failed run can be diagnosed once the runner is gone. This tier
+      # runs unattended at 120 turns, so nobody watched it: when one dies on the
+      # cap, the per-turn stream is the only record of where the budget went, and
+      # the reporter only ever surfaces a denial count. The job log holds just
+      # the action's `init` and `result`.
+      - name: Preserve the execution log
+        if: ${{ always() && steps.claude.outputs.execution_file != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: claude-execution-implement-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 14
+          if-no-files-found: warn
+
+      # Last, and `always()`. See scripts/report-run for why it is a step.
+      - name: Report how the run ended
+        if: ${{ always() }}
+        env:
+          # github.token, not the action's App token: that output is empty on
+          # exactly the endings this reports, and no commit is involved here.
+          GH_TOKEN: ${{ github.token }}
+          TIER: implement
+          ISSUE: ${{ env.ISSUE }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          AGENT_OUTCOME: ${{ steps.claude.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          MAX_TURNS: 120
+          TIMEOUT_MINUTES: 30
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: pnpm tsx scripts/report-run/index.ts
+
+  pr:
+    needs: guard
+    if: needs.guard.outputs.route == 'pr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: claude-pr-${{ needs.guard.outputs.issue }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure git identity
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
+
+      - name: Respond to the mention
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GATE_ISSUE: ${{ needs.guard.outputs.issue }}
+          GATE_JOB: pr
+        with:
+          # No prompt input: interactive mode, so Claude responds to the
+          # @claude trigger phrase and posts progress on the thread.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 120
+            --allowedTools Read,Write,Edit,Glob,Grep,Bash,Skill,TodoWrite
+
+      # Last, and `always()`. See scripts/report-run for why it is a step.
+      - name: Report how the run ended
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIER: pr
+          ISSUE: ${{ needs.guard.outputs.issue }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          AGENT_OUTCOME: ${{ steps.claude.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          MAX_TURNS: 120
+          TIMEOUT_MINUTES: 30
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: pnpm tsx scripts/report-run/index.ts
+
+  converse:
+    needs: guard
+    if: needs.guard.outputs.route == 'converse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A job-level block replaces the workflow-level one outright, so `actions`
+    # has to be restated: `gh run view` and the action's CI helpers read it.
+    # Read, not write — nothing dispatches any more.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+      id-token: write
+    concurrency:
+      group: claude-converse-${{ needs.guard.outputs.issue }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Answer the mention
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GATE_ISSUE: ${{ needs.guard.outputs.issue }}
+          GATE_JOB: converse
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Unlike the other two jobs, this one *does* pass github_token. The
+          # rule against it exists because commits made with GITHUB_TOKEN do not
+          # fire ci.yml — and this tier never commits. What it buys here is the
+          # narrower token: GITHUB_TOKEN carries only this job's declared
+          # permissions, where the App's installation token holds contents
+          # write on every repo it is installed on.
+          github_token: ${{ github.token }}
+          # `gh` is enumerated rather than `gh:*` because this job holds issues
+          # and pull-requests write, which a blanket grant would expose. Every
+          # entry is a read.
+          #
+          # Quoted because the value is split on whitespace, not just commas:
+          # unquoted, `Bash(gh issue view:*)` reached the SDK as three tools
+          # named `Bash(gh`, `issue` and `view:*)`, so every specifier with a
+          # space in it silently became nothing and this tier ran with no `gh`
+          # or `git` at all.
+          #
+          # The system prompt is load-bearing: without it Claude treats a
+          # request it cannot fulfil as a task to retry, and spends the whole
+          # turn budget colliding with the missing write tools.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 15
+            --allowedTools "Read,Glob,Grep,Skill,TodoWrite,Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh run view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*)"
+            --append-system-prompt "You are the read-only tier. You have no Write, Edit or general Bash tools and cannot change, commit or push anything. If answering needs a code change, do not attempt it and do not retry after a denial. Invoke the implement skill instead: it reports whether the issue is authorized for a run. Say what it found, and that a maintainer can start one by commenting `@claude implement N` on the issue. Then stop."
+
+      # The runner-local file the reporter reads, kept so a run can be diagnosed
+      # once it is gone. It records which tools were denied; the job log holds
+      # only the action's `init` and `result` lines, with no per-turn stream.
+      - name: Preserve the execution log
+        if: ${{ always() && steps.claude.outputs.execution_file != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: claude-execution-converse-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 14
+          if-no-files-found: warn
+
+      # Last, and `always()`. See scripts/report-run for why it is a step.
+      - name: Report how the run ended
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIER: converse
+          ISSUE: ${{ needs.guard.outputs.issue }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          AGENT_OUTCOME: ${{ steps.claude.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          MAX_TURNS: 15
+          TIMEOUT_MINUTES: 10
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: pnpm tsx scripts/report-run/index.ts

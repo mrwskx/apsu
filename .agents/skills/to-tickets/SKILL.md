@@ -60,7 +60,19 @@ Iterate until the user approves the breakdown.
 Publish the approved tickets. **How** depends on the tracker named in `docs/agents/issue-tracker.md` — the tickets are the same either way, only the shape of the blocking edges changes:
 
 - **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below — one ticket per file, never a single combined file.
-- **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply the `ready-for-agent` triage label unless instructed otherwise — the tickets are agent-grabbable by construction.
+- **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; on a tracker without one, name the blocking issues at the top of the body. Apply the `ready-for-agent` triage label unless instructed otherwise — the tickets are agent-grabbable by construction.
+
+On GitHub, a native edge is two calls, not one — the dependency endpoint takes the blocker's internal `issue_id`, not its issue number, so resolve it first:
+
+```bash
+blocker_id=$(gh api repos/{owner}/{repo}/issues/<blocker> --jq .id)
+gh api repos/{owner}/{repo}/issues/<blocked>/dependencies/blocked_by -F issue_id="$blocker_id"
+```
+
+Two traps, and only one of them is loud:
+
+- Passing the issue *number* where the internal id belongs 404s, or links whatever unrelated issue happens to hold that id. A wrong edge, quietly.
+- Passing the id with `-f` instead of `-F` sends it as a string and the call is rejected: `Invalid property /issue_id: "<id>" is not of type integer` (HTTP 422). No edge is created, and the message names the field rather than the flag, so the cause is not obvious from the error.
 
 On this repo's tracker, classify each ticket as **bug** or **feature** and file it with the matching template, filling only the fields that template defines:
 
@@ -102,10 +114,6 @@ The end-to-end behaviour this ticket makes work, from the user's perspective —
 
 - [ ] Criterion 1
 - [ ] Criterion 2
-
-## Blocked by
-
-- A reference to each blocking ticket, or "None — can start immediately".
 
 </issue-template>
 

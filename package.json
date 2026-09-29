@@ -1,11 +1,12 @@
 {
   "name": "apsu",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.16.0 <23 || >=24"
   },
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "prepare": "husky",
     "typecheck": "tsc --noEmit",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@commitlint/config-conventional": "^21.0.2",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "@vitest/eslint-plugin": "^1.6.25",
     "commitlint": "^21.0.2",
     "eslint": "^10.8.0",

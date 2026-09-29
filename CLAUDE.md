@@ -14,11 +14,11 @@
 
 Default to professional tightness. Drop filler words, pleasantries, hedging ("certainly", "great question", "I'll go ahead and"). Keep full sentences and articles. Technical terms, code blocks, IDs, error strings always verbatim. Expand to normal prose only for irreversible-action confirmations or multi-step sequences where compression risks misunderstanding.
 
+A GitHub comment posted by any `@claude` job — `implement`, `pr`, or `converse` — is a report, not a conversation: what happened, the identifier or link, what remains, in three lines or fewer. A bare link stands in for the whole of an ADR or design rationale behind an action — do not restate why a tier, route, or rule exists. Name a dispatched run and stop; it reports its own work when it finishes, more accurately than a prediction of it now. State a fact once — "no files changed" is not repeated as "nothing to review here."
+
 ## Skills
 
 Match user's request to skill and invoke.
-
-This table lists the model-invoked skills only. User-invoked skills are not listed — they fire only when the user types their name: `/handoff`, `/implement`, `/improve-codebase-architecture`, `/to-spec`, `/to-tickets`, `/triage`, `/writing-great-skills`.
 
 ### Planning & Design
 
@@ -33,18 +33,21 @@ This table lists the model-invoked skills only. User-invoked skills are not list
 
 | Skill                       | Trigger                                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
+| `implement`                 | `/implement`, "implement issue N", "work issue N", "pick up issue N"                        |
 | `tdd`                       | "test-first", "red-green", "write the test first", "add integration tests"                  |
 | `prototype`                 | "prototype this", "spike it", "does this state model feel right", "try a few UI variations" |
 | `diagnosing-bugs`           | "diagnose this", "debug this", something broken / throwing / failing / slow                 |
 | `resolving-merge-conflicts` | "resolve the conflicts", "fix this merge", "finish the rebase"                              |
+| `ponytail`                  | "be lazy", "simplest solution", "yagni", "do less", complaints about over-engineering       |
 
 ### Review & Ship
 
-| Skill            | Trigger                                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------- |
-| `code-review`    | "review this branch", "review since main", "review my changes", `/code-review`                      |
-| `commit-changes` | "commit", "commit this", "commit my changes", "make a commit", "create a commit", `/commit-changes` |
-| `open-pr`        | "open a PR", "open a pull request", "create a PR", "push and open PR", `/open-pr`                   |
+| Skill             | Trigger                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `code-review`     | "review this branch", "review since main", "review my changes", `/code-review`                      |
+| `commit-changes`  | "commit", "commit this", "commit my changes", "make a commit", "create a commit", `/commit-changes` |
+| `open-pr`         | "open a PR", "open a pull request", "create a PR", "push and open PR", `/open-pr`                   |
+| `ponytail-review` | "review for over-engineering", "what can we delete", "is this over-engineered", `/ponytail-review`  |
 
 ### Research
 
@@ -54,7 +57,7 @@ This table lists the model-invoked skills only. User-invoked skills are not list
 
 ### Agent Skills (Issue Tracking & Triage)
 
-**Issue tracker** — GitHub Issues (`github.com/mvshvssv/apsu`), via `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+**Issue tracker** — GitHub Issues (`github.com/mrwskx/apsu`), via `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 **Triage labels** — Default label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
