@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   decide,
   decideOnUnreadableBlockers,
+  parseJob,
+  recordsRefusal,
   toIssueFacts,
   AGENT_LABEL,
 } from './gate-implement.utils';
-import type { IssueFacts } from './gate-implement.utils';
+import type { IssueFacts, IssuePayload } from './gate-implement.utils';
 
 // An issue a maintainer marked ready. Every case below is this one with
 // something taken away.
@@ -19,7 +21,7 @@ const authorized: IssueFacts = {
 };
 
 describe('toIssueFacts', () => {
-  const payload = {
+  const payload: IssuePayload = {
     number: 159,
     state: 'open',
     labels: [{ name: AGENT_LABEL }, { name: 'feature' }],
@@ -236,6 +238,29 @@ describe('decide', () => {
       expect.stringContaining(AGENT_LABEL),
     );
   });
+});
+
+describe('parseJob', () => {
+  it.each(['implement', 'pr', 'converse'])('accepts %s', job => {
+    expect(parseJob(job)).toBe(job);
+  });
+
+  it.each([undefined, '', 'Implement', 'guard'])('rejects %j', job => {
+    expect(parseJob(job)).toBeUndefined();
+  });
+});
+
+describe('recordsRefusal', () => {
+  it('records a refusal for the implement job', () => {
+    expect(recordsRefusal('implement')).toBe(true);
+  });
+
+  it.each(['pr', 'converse', undefined] as const)(
+    'leaves a refusal unrecorded for the %s job',
+    job => {
+      expect(recordsRefusal(job)).toBe(false);
+    },
+  );
 });
 
 describe('decideOnUnreadableBlockers', () => {

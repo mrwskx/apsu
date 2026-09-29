@@ -24,7 +24,7 @@ Completion criterion: staged set is non-empty.
 
 Run:
 ```bash
-pnpm -s tsx scripts/generate-pr-description/derive-issue-ref.ts "$(git symbolic-ref --short HEAD)"
+pnpm -s tsx scripts/derive-issue-ref/index.ts "$(git symbolic-ref --short HEAD)"
 ```
 
 Non-empty output → capture as `ISSUE`. Empty → `ISSUE` unset, step done.

@@ -13,8 +13,17 @@ export interface Execution {
   permission_denials_count?: number;
 }
 
+const TIERS = ['implement', 'pr', 'converse'] as const;
+
+export type Tier = (typeof TIERS)[number];
+
+/** `TIER` as a known tier. Unset is `implement`; anything else is undefined. */
+export function parseTier(value = 'implement'): Tier | undefined {
+  return TIERS.find(tier => tier === value);
+}
+
 export interface RunFacts {
-  tier: 'implement' | 'pr' | 'converse';
+  tier: Tier;
   issue: number;
   branch: string;
   maxTurns: number;
@@ -207,4 +216,62 @@ export function composeComment(
   runUrl: string,
 ): string {
   return `${stripSpinner(existingBody).trimEnd()}\n\n---\n\n${formatReport(report, runUrl)}\n`;
+}
+
+/** The comment the report lands in, if the run already owns one. */
+export interface CommentTarget {
+  repo: string;
+  issue: number;
+  existingId: string | undefined;
+  /** Null when the existing comment could not be read back. */
+  existingBody: string | null;
+}
+
+export interface CommentWrite {
+  /** What a dry run prints in place of the write. */
+  intent: string;
+  body: string;
+  /** `gh` argv that performs the write. */
+  args: string[];
+}
+
+/**
+ * The action's own tracking comment already carries this run's URL, and it is
+ * a better home for the outcome than a fresh comment nobody asked for.
+ *
+ * Passed as argv rather than through a temp file: execFile spawns no shell, so
+ * the body needs no quoting and leaves nothing behind on the runner.
+ */
+export function planCommentWrite(
+  target: CommentTarget,
+  report: Report,
+  runUrl: string,
+): CommentWrite {
+  const { repo, issue, existingId, existingBody } = target;
+
+  const body =
+    existingId && existingBody !== null
+      ? composeComment(existingBody, report, runUrl)
+      : `${formatReport(report, runUrl)}\n`;
+
+  if (existingId) {
+    return {
+      intent: `--- would PATCH comment ${existingId} ---`,
+      body,
+      args: [
+        'api',
+        `repos/${repo}/issues/comments/${existingId}`,
+        '-X',
+        'PATCH',
+        '-f',
+        `body=${body}`,
+      ],
+    };
+  }
+
+  return {
+    intent: '--- would post a new comment ---',
+    body,
+    args: ['issue', 'comment', issue.toFixed(), '--repo', repo, '--body', body],
+  };
 }

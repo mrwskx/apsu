@@ -3,16 +3,15 @@ import { join, relative } from 'node:path';
 
 import type { SkillsLock } from './validate-skills.utils';
 import {
+  CLAUDE_SKILLS_DIR,
   extractSkills,
   findLockIssues,
   findMissingSkills,
   findSymlinkIssue,
   hashSkill,
   LOCK_ISSUE_TEXT,
+  SKILLS_DIR,
 } from './validate-skills.utils';
-
-const SKILLS_DIR = '.agents/skills';
-const CLAUDE_SKILLS_DIR = '.claude/skills';
 
 async function exists(path: string): Promise<boolean> {
   try {

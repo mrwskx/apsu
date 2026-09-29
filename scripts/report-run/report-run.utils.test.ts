@@ -5,6 +5,8 @@ import {
   findResultEntry,
   formatReport,
   lastCommentId,
+  parseTier,
+  planCommentWrite,
   stripSpinner,
 } from './report-run.utils';
 import type { RunFacts } from './report-run.utils';
@@ -376,6 +378,82 @@ describe('formatReport', () => {
     ).toBe(
       '**Stopped at turn 41 of 40** — [run](https://github.com/mrwskx/papyrus-ui/actions/runs/34890216131)\n\nNothing to review. Re-run, or split #160.',
     );
+  });
+});
+
+describe('parseTier', () => {
+  it.each(['implement', 'pr', 'converse'])('accepts %s', tier => {
+    expect(parseTier(tier)).toBe(tier);
+  });
+
+  it('defaults an unset tier to implement', () => {
+    expect(parseTier(undefined)).toBe('implement');
+  });
+
+  it.each(['', 'Implement', 'guard'])('rejects %j', tier => {
+    expect(parseTier(tier)).toBeUndefined();
+  });
+});
+
+describe('planCommentWrite', () => {
+  const report = {
+    headline: 'Stopped at turn 41 of 40',
+    next: 'Nothing to review. Re-run, or split #160.',
+  };
+  const url = 'https://github.com/mrwskx/papyrus-ui/actions/runs/34890216131';
+  const target = {
+    repo: 'mrwskx/papyrus-ui',
+    issue: 160,
+    existingId: '333',
+    existingBody: TRACKING_COMMENT,
+  };
+
+  it('appends to the tracking comment the run already owns', () => {
+    const write = planCommentWrite(target, report, url);
+
+    expect(write.body).toBe(composeComment(TRACKING_COMMENT, report, url));
+    expect(write.args).toEqual([
+      'api',
+      'repos/mrwskx/papyrus-ui/issues/comments/333',
+      '-X',
+      'PATCH',
+      '-f',
+      `body=${write.body}`,
+    ]);
+    expect(write.intent).toBe('--- would PATCH comment 333 ---');
+  });
+
+  it('posts a new comment when the run owns none', () => {
+    const write = planCommentWrite(
+      { ...target, existingId: undefined, existingBody: null },
+      report,
+      url,
+    );
+
+    expect(write.body).toBe(`${formatReport(report, url)}\n`);
+    expect(write.args).toEqual([
+      'issue',
+      'comment',
+      '160',
+      '--repo',
+      'mrwskx/papyrus-ui',
+      '--body',
+      write.body,
+    ]);
+    expect(write.intent).toBe('--- would post a new comment ---');
+  });
+
+  // The comment was found but could not be read back: it is still the target,
+  // with the report alone as its body.
+  it('patches the owned comment with the bare report when it cannot be read', () => {
+    const write = planCommentWrite(
+      { ...target, existingBody: null },
+      report,
+      url,
+    );
+
+    expect(write.body).toBe(`${formatReport(report, url)}\n`);
+    expect(write.args).toContain('repos/mrwskx/papyrus-ui/issues/comments/333');
   });
 });
 

@@ -13,10 +13,10 @@ import { promisify } from 'node:util';
 
 import {
   classify,
-  composeComment,
   findResultEntry,
-  formatReport,
   lastCommentId,
+  parseTier,
+  planCommentWrite,
 } from './report-run.utils';
 import type { Execution, RunFacts } from './report-run.utils';
 
@@ -51,15 +51,27 @@ async function readExecution(path: string): Promise<Execution | null> {
 }
 
 async function main(): Promise<void> {
-  const repo = process.env['GITHUB_REPOSITORY'] ?? '';
-  const issue = Number(process.env['ISSUE'] ?? '');
-  const branch = process.env['BRANCH'] ?? '';
-  const runUrl = process.env['RUN_URL'] ?? '';
-  const runId = process.env['GITHUB_RUN_ID'] ?? '';
+  const {
+    GITHUB_REPOSITORY: repo = '',
+    ISSUE = '',
+    BRANCH: branch = '',
+    RUN_URL: runUrl = '',
+    GITHUB_RUN_ID: runId = '',
+    TIER,
+    MAX_TURNS = '0',
+    TIMEOUT_MINUTES = '0',
+    JOB_STATUS: jobStatus = '',
+    AGENT_OUTCOME: agentOutcome = '',
+    EXECUTION_FILE = '',
+    GATE_REASON = '',
+    REPORT_DRY_RUN,
+  } = process.env;
+  const issue = Number(ISSUE);
+  const tier = parseTier(TIER);
 
-  if (!repo || !issue) {
+  if (!repo || !issue || !tier) {
     console.error(
-      'report-run: GITHUB_REPOSITORY or ISSUE unset; nothing to report onto.',
+      'report-run: GITHUB_REPOSITORY or ISSUE unset, or TIER unknown; nothing to report onto.',
     );
     return;
   }
@@ -103,15 +115,15 @@ async function main(): Promise<void> {
   }
 
   const facts: RunFacts = {
-    tier: (process.env['TIER'] ?? 'implement') as RunFacts['tier'],
+    tier,
     issue,
     branch,
-    maxTurns: Number(process.env['MAX_TURNS'] ?? '0'),
-    timeoutMinutes: Number(process.env['TIMEOUT_MINUTES'] ?? '0'),
-    jobStatus: process.env['JOB_STATUS'] ?? '',
-    agentOutcome: process.env['AGENT_OUTCOME'] ?? '',
-    execution: await readExecution(process.env['EXECUTION_FILE'] ?? ''),
-    gateReason: (process.env['GATE_REASON'] ?? '').trim(),
+    maxTurns: Number(MAX_TURNS),
+    timeoutMinutes: Number(TIMEOUT_MINUTES),
+    jobStatus,
+    agentOutcome,
+    execution: await readExecution(EXECUTION_FILE),
+    gateReason: GATE_REASON.trim(),
     branchPushed,
     commitsAhead,
     prNumber: pr ? Number(pr) : null,
@@ -123,8 +135,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // The action's own tracking comment already carries this run's URL, and it is
-  // a better home for the outcome than a fresh comment nobody asked for.
   const existingId = lastCommentId(
     await tryRun('gh', [
       'api',
@@ -144,41 +154,19 @@ async function main(): Promise<void> {
       ])
     : null;
 
-  const body =
-    existingId && existingBody !== null
-      ? composeComment(existingBody, report, runUrl)
-      : `${formatReport(report, runUrl)}\n`;
+  const { intent, body, args } = planCommentWrite(
+    { repo, issue, existingId, existingBody },
+    report,
+    runUrl,
+  );
 
-  if (process.env['REPORT_DRY_RUN']) {
-    console.log(
-      existingId
-        ? `--- would PATCH comment ${existingId} ---`
-        : '--- would post a new comment ---',
-    );
+  if (REPORT_DRY_RUN) {
+    console.log(intent);
     console.log(body);
     return;
   }
 
-  // Passed as argv rather than through a temp file: execFile spawns no shell,
-  // so the body needs no quoting and leaves nothing behind on the runner.
-  const written = existingId
-    ? await tryRun('gh', [
-        'api',
-        `repos/${repo}/issues/comments/${existingId}`,
-        '-X',
-        'PATCH',
-        '-f',
-        `body=${body}`,
-      ])
-    : await tryRun('gh', [
-        'issue',
-        'comment',
-        String(issue),
-        '--repo',
-        repo,
-        '--body',
-        body,
-      ]);
+  const written = await tryRun('gh', args);
 
   // One attempt, and a failed write never fails the run. The log line carries
   // the whole body, so the finding survives even when the comment does not.
