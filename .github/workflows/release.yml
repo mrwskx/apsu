@@ -1,7 +1,6 @@
 # Maintains a standing release PR on main: every conventional commit that
 # lands updates the proposed version and CHANGELOG entry. Merging that PR tags
-# the release and publishes the GitHub Release. apsu is private, so the npm
-# publish steps and the id-token permission they need are commented out.
+# the release and publishes the GitHub Release.
 #
 # The app token (rather than GITHUB_TOKEN) is deliberate: pushes made with
 # GITHUB_TOKEN do not trigger workflows, so the release PR would never get its
@@ -22,7 +21,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -91,33 +89,3 @@ jobs:
             git commit -a --amend --no-edit
             git push --force-with-lease origin HEAD:${{ fromJSON(steps.release.outputs.pr).headBranchName }}
           fi
-
-      # - name: Checkout
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   uses: actions/checkout@v7
-
-      # - name: Setup pnpm
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   uses: pnpm/action-setup@v6
-
-      # - name: Setup Node.js
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   uses: actions/setup-node@v7
-      #   with:
-      #     node-version: 22
-      #     cache: pnpm
-      #     registry-url: https://registry.npmjs.org
-
-      # - name: Install dependencies
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   run: pnpm install --frozen-lockfile
-
-      # - name: Build
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   run: pnpm build
-
-      # - name: Publish to npm
-      #   if: ${{ steps.release.outputs.release_created }}
-      #   run: pnpm publish --no-git-checks
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
