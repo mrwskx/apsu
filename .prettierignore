@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 pnpm-lock.yaml
+CHANGELOG.md
 .husky/_/
 
 # Vendored from mattpocock/skills — kept byte-identical to upstream so the
